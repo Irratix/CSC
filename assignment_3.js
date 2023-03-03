@@ -13,7 +13,7 @@ const fs = require('fs');
 **/
 const construct_profile = function (txt) {
   return txt
-    .replace(/#.+\n/g,'')
+    .replace(/#.+\n/g, '')
     .match(/[^\n]+/g)
     .map(votes => {
       return {
@@ -21,26 +21,44 @@ const construct_profile = function (txt) {
         preference: votes
           .match(/\{.+\}|\d+(?=$|,)/g)
           .map(n => n
-             .replace(/[{}]/g,'')
-             .split(',')
+            .replace(/[{}]/g, '')
+            .split(',')
           )
-        }
-      });
+      }
+    });
+}
+
+// returns the file if it could be accessed
+const read_data_file = function (path) {
+  return fs.readFileSync(path, 'utf8');
+}
+
+// Returns a map of plurality scores for each alternative in the profile
+// Alternatives that are not selected will be undefined
+const construct_plurality_scores = function (profile) {
+  let list = new Map();
+  for (ballot of profile) {
+    for (preference of ballot.preference[0]) {
+      // notation seems redundant but this works
+      if (list[preference])
+        list[preference] += ballot.amt;
+      else
+        list[preference] = ballot.amt;
+    }
+  }
+  return list;
 }
 
 // read file and pass it off to main function
-fs.readFile('data.txt', 'utf8', (err, data) => {
-  if (err) {
-    console.error(err);
-    return;
-  }
-  main(data);
-});
-
 
 const main = function (data) {
+  if (!data) {
+    console.log("File reading failed");
+    return;
+  }
   const profile = construct_profile(data);
-  // console.log(JSON.stringify(profile,1,4));
+  console.log(JSON.stringify(profile[0], 1, 4));
+  console.log(JSON.stringify(construct_plurality_scores(profile)));
 }
 
-
+main(read_data_file('data.txt'));
