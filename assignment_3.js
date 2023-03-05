@@ -83,28 +83,82 @@ const sigma_profile = function (profile) {
     if (value == minimum)
       alternatives_to_filter.push(key);
   }
-  console.log(alternatives_to_filter);
   return filter_alternatives(profile, alternatives_to_filter);
 }
 
 // returns the winning alternatives of the profile using the STV rule
 const single_transferable_vote = function (profile) {
-  let pluralities = construct_plurality_scores(profile);
-  // it's all a reference anyway
-  let profile_n = profile;
-  // the profile that will contain the last remaining alternative
-  let profile_n_1 = profile_n;
-  while (pluralities.size > 0) {
-    profile_n_1 = profile_n;
-    profile_n = sigma_profile(profile_n);
-    pluralities = construct_plurality_scores(profile_n);
-  }
+  let profile_n_1 = single_transferable_vote_profile_minus_n(profile);
   pluralities = construct_plurality_scores(profile_n_1);
   // for posterity
   console.log(pluralities);
   // cool destructuring op
   let winners = [...pluralities.keys()];
   return winners;
+}
+
+// returns the profile obtained n iterations of sigma_profile before it obtains the empty set
+const single_transferable_vote_profile_minus_n = function (profile, n = 1) {
+  let pluralities = construct_plurality_scores(profile);
+  // it's all a reference anyway
+  let profile_n = [profile];
+  // the profile that will contain the last remaining alternative
+  let numberOfIterations = 0;
+  while (pluralities.size > 0) {
+    // .(-1) is a really ugly way to write .back()
+    profile_n.push(sigma_profile(profile_n.at(-1)));
+    pluralities = construct_plurality_scores(profile_n.at(-1));
+    numberOfIterations++;
+  }
+  return profile_n.at(-(1 + n));
+}
+
+// Returns the ballots in a profile such that x > y in those ballots
+// essentially returns a subset of the profile
+const nxy = function (profile, x, y) {
+  let subset = [];
+  for (ballot of profile) {
+    for (preference of ballot.preference) {
+      if (preference.includes(x)) {
+        if (!preference.includes(y)) {
+          // we found a ballot including x before y, add it
+          subset.push(ballot);
+        }
+      }
+      // the ballot contains y before x, continue
+      if (preference.includes(y)) {
+        break;
+      }
+    }
+  }
+  return subset;
+}
+
+// returns the array of alternatives in the given profile
+const alternatives_in_profile = function (profile) {
+  // technically inefficient but not by that much
+  let pluralities = construct_plurality_scores(profile);
+  return [...pluralities.keys()];
+}
+
+// returns the total number of ballots in a profile
+const cardinality_profile = function (profile) {
+  let sum = 0;
+  for (ballot of profile) {
+    sum += ballot.amt;
+  }
+  return sum;
+}
+
+// algorithm that finds the minimal alteration of the given profile, prime
+// such that there is a decisive coalition that prefers its outcome stv(prime)
+// to the outcome of stv(profile)
+const find_coalition = function (profile) {
+  const winner = single_transferable_vote(profile);
+  let p_2 = single_transferable_vote_profile_minus_n(profile, 2);
+  let alternatives = alternatives_in_profile(p_2);
+  // we look for alternatives that can potentially be bumped up
+  // TODO
 }
 
 // read file and pass it off to main function
@@ -116,6 +170,10 @@ const main = function (data) {
   }
   const profile = construct_profile(data);
   console.log(single_transferable_vote(profile));
+  console.log(nxy(profile, '3', '8')[0]);
+  console.log(cardinality_profile(nxy(profile, '3', '8')));
+  console.log(alternatives_in_profile(nxy(profile, '3', '8')));
+  console.log(find_coalition(profile));
 }
 
 main(read_data_file('data.txt'));
