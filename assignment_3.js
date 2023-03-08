@@ -38,7 +38,7 @@ const read_data_file = function (path) {
 // Alternatives that are not selected will be undefined
 const construct_plurality_scores = function (profile) {
   let scores = new Map();
-  for (ballot of profile) {
+  for (const ballot of profile) {
     if (ballot.preference.length > 0) {
       if (!Array.isArray(ballot.preference[0])) {
         const preference = ballot.preference[0];
@@ -51,12 +51,14 @@ const construct_plurality_scores = function (profile) {
         }
       }
       else {
-        for (preference of ballot.preference[0]) {
+        for (const preference of ballot.preference[0]) {
+          // in case of a tie we need to make sure that the scores are divied up correctly
+          const votes = ballot.amt / ballot.preference[0].length
           // notation seems redundant but this works
           if (scores.has(preference))
-            scores.set(preference, scores.get(preference) + ballot.amt);
+            scores.set(preference, scores.get(preference) + votes);
           else
-            scores.set(preference, ballot.amt);
+            scores.set(preference, votes);
         }
       }
     }
