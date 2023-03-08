@@ -33,6 +33,7 @@ const construct_plurality_scores =
   for (const ballot of profile) {
     if (ballot.preference.length > 0) {
       if (!Array.isArray(ballot.preference[0])) {
+        // singleton handling
         const preference = ballot.preference[0];
         if (scores.has(preference)) {
           // notation seems redundant but this works
@@ -42,6 +43,7 @@ const construct_plurality_scores =
             scores.set(preference, ballot.amt);
         }
       } else {
+        // array handling
         for (const preference of ballot.preference[0]) {
           // in case of a tie we need to make sure that the scores are divied up
           // correctly
@@ -241,16 +243,11 @@ const find_coalition =
           const prime = [...agent_pool, ...agent_pool_complement ];
 
           // output some information
-          console.log('Intermediate outcome');
           const winner_prime = single_transferable_vote(prime);
-          console.log('winner:', winner_prime);
           const pluralities_prime = construct_plurality_scores(prime);
-          console.log('pluralities:', pluralities_prime);
-          console.log('target:', alternative)
           if (winner_prime == alternative ||
               winner_prime.includes(alternative)) {
-            console.log('New winner:', alternative);
-            console.log(pluralities_prime);
+            // we're done
             return agent_pool;
           }
 
@@ -269,7 +266,6 @@ const find_coalition =
       checked_alternatives.concat(viable_alternatives);
     }
   }
-  console.log('Failed to find a coalition');
   // no coalition to be found
   return;
 }
@@ -294,21 +290,14 @@ const naive_coalition_finder =
       // now plug this coalition in with the rest of the agents and see if we
       // win
       const prime = [...agent_pool, ...agent_pool_complement ];
-      console.log('Intermediate outcome');
       const winner_prime = single_transferable_vote(prime);
-      console.log('winner:', winner_prime);
       const pluralities_prime = construct_plurality_scores(prime);
-      console.log('pluralities:', pluralities_prime);
-      console.log('target:', alternative)
 
       if (winner_prime == alternative || winner_prime.includes(alternative)) {
-        console.log('New winner:', alternative);
-        console.log(pluralities_prime);
         return agent_pool;
       }
     }
   }
-  console.log('Failed to find a coalition');
   // no coalition to be found
   return;
 }
