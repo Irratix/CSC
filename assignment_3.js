@@ -47,11 +47,12 @@ const construct_plurality_scores =
         for (const preference of ballot.preference[0]) {
           // in case of a tie we need to make sure that the scores are divied up
           // correctly
-          const votes = ballot.amt / ballot.preference[0].length
+          const votes = ballot.amt / ballot.preference[0].length;
           // notation seems redundant but this works
           if (scores.has(preference))
-          scores.set(preference, scores.get(preference) + votes);
-          else scores.set(preference, votes);
+            scores.set(preference, scores.get(preference) + ballot.amt);
+          else
+            scores.set(preference, ballot.amt);
         }
       }
     }
@@ -230,25 +231,38 @@ const find_coalition =
     });
     for (const alternative of viable_alternatives) {
       // get the subsets (pools of agents) nxy where x beats y
-      for (target of winner) {
+      for (const target of winner) {
         let agent_pool = nxy(profile_n, alternative, target);
         const agent_pool_complement = nxy(profile_n, target, alternative);
         // now with this agent pool, make alternative the top choice for an
         // incremental number of agents
         for (let n = 0; n < cardinality_profile(agent_pool);) {
-          const actual_n = bump_alternative(agent_pool, alternative, n);
+          // create a deep copy and modify it
+          const profile_n_copy = JSON.parse(JSON.stringify(profile_n));
+          const actual_n = bump_alternative(profile_n_copy, alternative, n);
 
           // now plug this coalition in with the rest of the agents and see if
           // we win
-          const prime = [...agent_pool, ...agent_pool_complement ];
-
+          const prime = profile_n_copy;
+          if (cardinality_profile(prime) != cardinality_profile(profile_n))
+            console.log("Whoops!", cardinality_profile(prime),
+                        cardinality_profile(profile_n));
           // output some information
           const winner_prime = single_transferable_vote(prime);
           const pluralities_prime = construct_plurality_scores(prime);
           if (winner_prime == alternative ||
               winner_prime.includes(alternative)) {
             // we're done
-            return agent_pool;
+            // create a nice result obj
+            return {
+              // todo, report actual coalition
+              coalition : actual_n,
+              winner : winner_prime,
+              pluralities : pluralities_prime,
+              size : cardinality_profile(agent_pool),
+              manipulated_ballots : actual_n,
+              prime : prime
+            };
           }
 
           if (actual_n < n)
@@ -259,11 +273,18 @@ const find_coalition =
 
           // optimization: we need at least a number of agents that is equal to
           // at least half the plurality score difference
-          let diff = pluralities_prime[target] - pluralities_prime[alternative];
+          let diff = pluralities_prime.get(target) -
+                     pluralities_prime.get(alternative);
           n += diff / 2;
+          // it is possible for the difference to become negative, as these
+          // pluralities are not calculated at the final step
+          if (diff <= 0)
+            break;
         }
       }
-      checked_alternatives.concat(viable_alternatives);
+      // yikes
+      checked_alternatives.push.apply(checked_alternatives,
+                                      viable_alternatives);
     }
   }
   // no coalition to be found
@@ -302,21 +323,34 @@ const naive_coalition_finder =
   return;
 }
 
+// Returns the path to the datafile that is to be used
+const manage_args =
+    function() {
+  if (process.argv.length > 2)
+    return process.argv[2];
+  else
+    return "data.txt";
+}
+
 const main =
-    function(data) {
+    function() {
+  const data = read_data_file(manage_args());
   if (!data) {
     console.log('File reading failed');
     return;
   }
   const profile = construct_profile(data);
-  console.log(profile[0]);
-  console.log(single_transferable_vote(profile));
-  console.log(nxy(profile, '3', '8')[0]);
-  console.log(cardinality_profile(nxy(profile, '3', '8')));
-  console.log(alternatives_in_profile(nxy(profile, '3', '8')));
-  console.log(find_coalition(profile));
-  console.log(naive_coalition_finder(profile));
+  console.log("Outcome of original profile", single_transferable_vote(profile));
+  console.log("Pluralities", construct_plurality_scores(profile));
+  const algo_coalition = find_coalition(profile);
+  if (algo_coalition)
+    console.log("Coalition found", algo_coalition);
+  const naive_coalition = naive_coalition_finder(profile);
+  if (naive_coalition)
+    console.log("Naive coalition found",
+                single_transferable_vote(naive_coalition));
+  console.log("n28", cardinality_profile(nxy(profile, '2', '8')));
+  console.log("n82", cardinality_profile(nxy(profile, '8', '2')));
 }
 
-// read file and pass it off to main function
-main(read_data_file('data.txt'));
+main();
