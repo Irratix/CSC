@@ -243,14 +243,16 @@ const find_coalition =
     // we look for alternatives that can potentially be bumped up
     const viable_alternatives = alternatives_n.filter(function(element) {
       return !winner.includes(element) &&
-             !checked_alternatives.includes(element)
+             !checked_alternatives.includes(element) &&
+             (nxy(profile, element, winner[0]) >
+              nxy(profile, winner[0], element));
     });
     // start with the alternative that has the smallest distance to the
     // winner(s)
     viable_alternatives.sort(
         (x, y) => cardinality_profile(
-            nxy(profile_n, x, winner[0]),
-            cardinality_profile(nxt(profile_n, y, winner[0]))));
+            nxy(profile_n, x, winner[0]) >
+            cardinality_profile(nxy(profile_n, y, winner[0]))));
     for (const alternative of viable_alternatives) {
       // get the subsets (pools of agents) nxy where x beats (one of the
       // winning) y's
