@@ -13,13 +13,17 @@ const fs = require('fs');
  **/
 const construct_profile =
     function(txt) {
-  return txt.replace(/#.+\n/g, '').match(/[^\n]+/g).map(votes => {
+  let id = 0;
+  let lines = txt.replace(/#.+\n/g, '').match(/[^\n]+/g);
+  let profile = lines.map(ballot => {
     return {
-      amt: Number(votes.split(':')[0]),
-          preference: votes.match(/\{.+\}|\d+(?=$|,)/g)
-              .map(n => n.replace(/[{}]/g, '').split(','))
-    }
+      amt : Number(ballot.split(':')[0]),
+      preference : ballot.match(/\{.+\}|\d+(?=$|,)/g)
+                       .map(n => n.replace(/[{}]/g, '').split(',')),
+      ballot_id : id++ // note intentional postfix increment
+    };
   });
+  return profile;
 }
 
 // returns the file if it could be accessed
@@ -31,30 +35,15 @@ const construct_plurality_scores =
     function(profile) {
   let scores = new Map();
   for (const ballot of profile) {
-    if (ballot.preference.length > 0) {
-      if (!Array.isArray(ballot.preference[0])) {
-        // singleton handling
-        const preference = ballot.preference[0];
-        if (scores.has(preference)) {
-          // notation seems redundant but this works
-          if (scores.has(preference))
-            scores.set(preference, scores.get(preference) + ballot.amt);
-          else
-            scores.set(preference, ballot.amt);
-        }
-      } else {
-        // array handling
-        for (const preference of ballot.preference[0]) {
-          // in case of a tie we need to make sure that the scores are divied up
-          // correctly
-          const votes = ballot.amt / ballot.preference[0].length;
-          // notation seems redundant but this works
-          if (scores.has(preference))
-            scores.set(preference, scores.get(preference) + ballot.amt);
-          else
-            scores.set(preference, ballot.amt);
-        }
-      }
+    for (const preference of ballot.preference[0]) {
+      // in case of a tie we need to make sure that the scores are divied up
+      // correctly
+      const votes = ballot.amt / ballot.preference[0].length;
+      // notation seems redundant but this works
+      if (scores.has(preference))
+        scores.set(preference, scores.get(preference) + ballot.amt);
+      else
+        scores.set(preference, ballot.amt);
     }
   }
   return scores;
@@ -69,19 +58,18 @@ const filter_alternatives =
     let ballot_copy = Object();
     ballot_copy.amt = ballot.amt;
     ballot_copy.preference = [];
+    ballot_copy.ballot_id = ballot.ballot_id;
     for (const preference of ballot.preference) {
       // remember preference can be an array
-      if (Array.isArray(preference)) {
-        let filtered_preference = preference.filter(function(
-            element) { return !alternatives.includes(element) });
-        // filtering may have produced an empty array
-        if (filtered_preference.length > 0)
-          ballot_copy.preference.push(filtered_preference);
-      } else if (!alternatives.includes(preference)) {
-        ballot_copy.preference.push([ preference ]);
-      }
+      let filtered_preference = preference.filter(function(
+          element) { return !alternatives.includes(element) });
+      // filtering may have produced an empty array
+      if (filtered_preference.length > 0)
+        ballot_copy.preference.push(filtered_preference);
     }
-    profile_n.push(ballot_copy);
+    // add only ballots that are still part of the vote
+    if (ballot_copy.preference.length > 0)
+      profile_n.push(ballot_copy);
   }
   return profile_n;
 }
@@ -142,17 +130,15 @@ const nxy =
   let subset = [];
   for (const ballot of profile) {
     for (const preference of ballot.preference) {
-      if ((Array.isArray(preference) && preference.includes(x)) ||
-          preference == x) {
-        if (!(Array.isArray(preference) && preference.includes(y))) {
+      if (preference.includes(x)) {
+        if (!preference.includes(y)) {
           // we found a ballot including x before y, add it
           subset.push(ballot);
         }
         break;
       }
       // the ballot contains y before x, continue
-      if ((Array.isArray(preference) && preference.includes(y)) ||
-          preference == y) {
+      if (preference.includes(y)) {
         break;
       }
     }
@@ -179,35 +165,64 @@ const cardinality_profile =
 }
 
 // In the given profile, bumps the alternative to the top of the list for up to
-// n ballots that do not already have the alternative at the top returns the
-// number of ballots that were thus modified (may be less than n if all ballots
-// already rank alternative at the the top) NOTE: Can technically return results
-// > n (WIP)
+// n ballots that do not already have the alternative at the top, unless they
+// rank the target above alternative.
+// returns the number of ballots that were thus modified (may be less than n if
+// all ballots already rank alternative at the the top) NOTE: Can technically
+// return a count > n (WIP)
 const bump_alternative =
-    function(profile, alternative, n) {
-  let bumps = 0;
+    function(profile, alternative, target, max_number_of_manipulations) {
+  let current_number_of_manipulations = 0;
+  let coalition = [];
   for (const ballot of profile) {
-    if (bumps < n) {
-      if (
-          // singleton case
-          (!Array.isArray(ballot.preference[0]) &&
-           ballot.preference[0] != alternative) ||
-          // array case
-          (!ballot.preference[0].includes(alternative))) {
-        const index_alternative =
-            ballot.preference.find(element => element == alternative ||
-                                              (Array.isArray(element) &&
-                                               element.includes(alternative)));
-        // bump it (by means of swap)
-        [ballot.preference[0], ballot.preference[index_alternative]] =
-            [ ballot.preference[alternative], ballot.preference[0] ];
-        bumps += ballot.amt;
-      }
-    } else {
+    if (current_number_of_manipulations >= max_number_of_manipulations) {
+      // we're done manipulating, for now
       break;
     }
+    // if the alternative is not already on top
+    if ((!ballot.preference[0].includes(alternative))) {
+      const index_alternative =
+          ballot.preference.findIndex(element => element.includes(alternative));
+      // ballot does not prefer this alternative
+      if (index_alternative == -1)
+        continue;
+      const index_target =
+          ballot.preference.findIndex(element => element.includes(target));
+      // only bump the alternative if it is preferred by the ballot
+      if (index_target === -1 || index_alternative < index_target) {
+        let manip_ballot = ballot;
+        // make sure we only manipulate to the desired extent
+        if (current_number_of_manipulations + ballot.amt >
+            max_number_of_manipulations) {
+          // split this ballot entry so we manipulate only the votes needed
+          manip_ballot = deep_copy(ballot);
+          manipulated_vote_count =
+              max_number_of_manipulations - current_number_of_manipulations;
+          manip_ballot.amt = manipulated_vote_count;
+          ballot.amt -= manipulated_vote_count;
+        }
+        // bump the alternative to the top of the ballot
+        // (by means of swapping with the current top)
+        [manip_ballot.preference[0],
+         manip_ballot.preference[index_alternative]] =
+            [
+              manip_ballot.preference[index_alternative],
+              manip_ballot.preference[0]
+            ];
+
+        current_number_of_manipulations += manip_ballot.amt;
+        coalition.push(manip_ballot);
+      }
+    }
   }
-  return bumps;
+  return coalition;
+}
+
+// made a special function due to encountering a really odd bug
+const deep_copy =
+    function(profile) {
+  const copy = JSON.parse(JSON.stringify(profile));
+  return copy;
 }
 
 // algorithm that finds the minimal alteration of the given profile, prime
@@ -222,6 +237,7 @@ const find_coalition =
       single_transferable_vote_all_profiles(profile).reverse();
   const alternatives = alternatives_in_profile(profile);
   const checked_alternatives = [];
+  const best_coalition = undefined;
   for (const profile_n of vote_iterations.slice(1)) {
     const alternatives_n = alternatives_in_profile(profile_n);
     // we look for alternatives that can potentially be bumped up
@@ -229,60 +245,59 @@ const find_coalition =
       return !winner.includes(element) &&
              !checked_alternatives.includes(element)
     });
+    // start with the alternative that has the smallest distance to the
+    // winner(s)
+    viable_alternatives.sort(
+        (x, y) => cardinality_profile(
+            nxy(profile_n, x, winner[0]),
+            cardinality_profile(nxt(profile_n, y, winner[0]))));
     for (const alternative of viable_alternatives) {
-      // get the subsets (pools of agents) nxy where x beats y
+      // get the subsets (pools of agents) nxy where x beats (one of the
+      // winning) y's
       for (const target of winner) {
-        let agent_pool = nxy(profile_n, alternative, target);
-        const agent_pool_complement = nxy(profile_n, target, alternative);
+        const agent_pool = nxy(profile_n, alternative, target);
         // now with this agent pool, make alternative the top choice for an
         // incremental number of agents
-        for (let n = 0; n < cardinality_profile(agent_pool);) {
+        for (let number_of_manipulated_ballots = 0;
+             number_of_manipulated_ballots < cardinality_profile(agent_pool);
+             ++number_of_manipulated_ballots) {
           // create a deep copy and modify it
-          const profile_n_copy = JSON.parse(JSON.stringify(profile_n));
-          const actual_n = bump_alternative(profile_n_copy, alternative, n);
+          const prime = deep_copy(profile_n);
+          const coalition = bump_alternative(prime, alternative, target,
+                                             number_of_manipulated_ballots);
 
-          // now plug this coalition in with the rest of the agents and see if
-          // we win
-          const prime = profile_n_copy;
-          if (cardinality_profile(prime) != cardinality_profile(profile_n))
-            console.log("Whoops!", cardinality_profile(prime),
-                        cardinality_profile(profile_n));
-          // output some information
+          // determine the winner of the modified profile
           const winner_prime = single_transferable_vote(prime);
           const pluralities_prime = construct_plurality_scores(prime);
-          if (winner_prime == alternative ||
-              winner_prime.includes(alternative)) {
-            // we're done
-            // create a nice result obj
+          const coalition_size = cardinality_profile(coalition);
+
+          // only allows singleton victories
+          if (winner_prime == alternative) {
+            // we're done, create a nice result object
             return {
-              // todo, report actual coalition
-              coalition : actual_n,
+              coalition : coalition,
               winner : winner_prime,
               pluralities : pluralities_prime,
-              size : cardinality_profile(agent_pool),
-              manipulated_ballots : actual_n,
+              manipulated_ballots : coalition_size,
               prime : prime
             };
           }
 
-          if (actual_n < n)
+          // stop early, we are not able to assemble a coalition of proper size
+          if (coalition_size < number_of_manipulated_ballots)
             break;
-          // skip some steps
-          if (actual_n > n)
-            n = actual_n;
 
           // optimization: we need at least a number of agents that is equal to
-          // at least half the plurality score difference
+          // at half the plurality score difference
           let diff = pluralities_prime.get(target) -
                      pluralities_prime.get(alternative);
-          n += diff / 2;
           // it is possible for the difference to become negative, as these
           // pluralities are not calculated at the final step
-          if (diff <= 0)
-            break;
+          if (diff > 0)
+            number_of_manipulated_ballots += (diff / 2);
         }
       }
-      // yikes
+      // make sure to only consider each alternative once
       checked_alternatives.push.apply(checked_alternatives,
                                       viable_alternatives);
     }
@@ -305,14 +320,10 @@ const naive_coalition_finder =
     for (target of winner) {
       let agent_pool = nxy(profile, alternative, target);
       const agent_pool_complement = nxy(profile, target, alternative);
-      // bump the alternative to the maximum
-      const actual_n = bump_alternative(agent_pool, alternative,
-                                        cardinality_profile(agent_pool));
       // now plug this coalition in with the rest of the agents and see if we
       // win
       const prime = [...agent_pool, ...agent_pool_complement ];
       const winner_prime = single_transferable_vote(prime);
-      const pluralities_prime = construct_plurality_scores(prime);
 
       if (winner_prime == alternative || winner_prime.includes(alternative)) {
         return agent_pool;
@@ -341,16 +352,22 @@ const main =
   }
   const profile = construct_profile(data);
   console.log("Outcome of original profile", single_transferable_vote(profile));
-  console.log("Pluralities", construct_plurality_scores(profile));
   const algo_coalition = find_coalition(profile);
-  if (algo_coalition)
-    console.log("Coalition found", algo_coalition);
-  const naive_coalition = naive_coalition_finder(profile);
-  if (naive_coalition)
-    console.log("Naive coalition found",
-                single_transferable_vote(naive_coalition));
-  console.log("n28", cardinality_profile(nxy(profile, '2', '8')));
-  console.log("n82", cardinality_profile(nxy(profile, '8', '2')));
+  if (algo_coalition) {
+    console.log("Ballots of coalition");
+    for (const ballot of algo_coalition.coalition) {
+      console.log("manipulated:", ballot);
+      console.log("original:", profile.find(original => original.ballot_id ===
+                                                        ballot.ballot_id));
+    }
+    console.log("Coalition found, winning alternative", algo_coalition.winner);
+    console.log("Number of manipulated ballots:",
+                algo_coalition.manipulated_ballots);
+  } else {
+    console.log("Found no manipulative coalition");
+    if (naive_coalition_finder(profile) != undefined)
+      console.log("It seems the proper algorithm is erroneous");
+  }
 }
 
 main();
