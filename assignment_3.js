@@ -235,9 +235,7 @@ const find_coalition =
   // first)
   const vote_iterations =
       single_transferable_vote_all_profiles(profile).reverse();
-  const alternatives = alternatives_in_profile(profile);
   const checked_alternatives = [];
-  const best_coalition = undefined;
   for (const profile_n of vote_iterations.slice(1)) {
     const alternatives_n = alternatives_in_profile(profile_n);
     // we look for alternatives that can potentially be bumped up
@@ -270,7 +268,8 @@ const find_coalition =
 
           // determine the winner of the modified profile
           const winner_prime = single_transferable_vote(prime);
-          const pluralities_prime = construct_plurality_scores(prime);
+          const pluralities_prime = construct_plurality_scores(
+              single_transferable_vote_profile_minus_n(prime));
           const coalition_size = cardinality_profile(coalition);
 
           // only allows singleton victories
@@ -288,15 +287,6 @@ const find_coalition =
           // stop early, we are not able to assemble a coalition of proper size
           if (coalition_size < number_of_manipulated_ballots)
             break;
-
-          // optimization: we need at least a number of agents that is equal to
-          // at half the plurality score difference
-          let diff = pluralities_prime.get(target) -
-                     pluralities_prime.get(alternative);
-          // it is possible for the difference to become negative, as these
-          // pluralities are not calculated at the final step
-          if (diff > 0)
-            number_of_manipulated_ballots += (diff / 2);
         }
       }
       // make sure to only consider each alternative once
